@@ -1,12 +1,20 @@
 import sys
 import math
 import random
+import struct
 import pygame
 
 
 # =========================
 # 基本配置
 # =========================
+
+pygame.mixer.pre_init(
+    frequency=44100,
+    size=-16,
+    channels=1,
+    buffer=512
+)
 
 pygame.init()
 
@@ -143,6 +151,70 @@ TITLE_FONT = get_font(40, True)
 LARGE_FONT = get_font(32, True)
 NORMAL_FONT = get_font(24)
 SMALL_FONT = get_font(18)
+
+
+# =========================
+# 音效生成
+# =========================
+
+def make_tone(start_frequency, duration, volume=0.4, end_frequency=None):
+    """
+    生成一段简单的正弦波音效，避免依赖外部音频文件。
+    """
+    sample_rate = 44100
+    sample_count = int(sample_rate * duration)
+
+    if end_frequency is None:
+        end_frequency = start_frequency
+
+    audio_data = bytearray()
+
+    for i in range(sample_count):
+        progress = i / sample_count
+
+        frequency = (
+            start_frequency
+            + (end_frequency - start_frequency) * progress
+        )
+
+        value = math.sin(
+            2 * math.pi * frequency * i / sample_rate
+        )
+
+        fade_in = min(i / 500, 1.0)
+        fade_out = min((sample_count - i) / 1000, 1.0)
+        envelope = min(fade_in, fade_out)
+
+        sample = int(32767 * volume * value * envelope)
+
+        audio_data.extend(struct.pack("<h", sample))
+
+    return pygame.mixer.Sound(buffer=bytes(audio_data))
+
+
+try:
+    collision_sound = make_tone(180, 0.18, 0.5, 80)
+    fly_sound = make_tone(350, 0.20, 0.35, 850)
+    win_sound = make_tone(500, 0.45, 0.4, 1000)
+    fail_sound = make_tone(250, 0.5, 0.4, 80)
+except pygame.error:
+    collision_sound = None
+    fly_sound = None
+    win_sound = None
+    fail_sound = None
+
+
+def play_sound(sound):
+    """
+    播放音效。音频设备不可用时直接忽略，不影响游戏运行。
+    """
+    if sound is None:
+        return
+
+    try:
+        sound.play()
+    except pygame.error:
+        pass
 
 
 # =========================
@@ -647,16 +719,20 @@ def handle_arrow_click(mouse_position):
                 collision_start_time = pygame.time.get_ticks()
 
                 create_collision_effect(position)
+                play_sound(collision_sound)
 
                 if lives <= 0:
                     result_is_win = False
                     game_state = RESULT
+                    play_sound(fail_sound)
 
                 return
 
             # 没有阻挡，启动飞行动画
             flying_arrow = (position, direction)
             flying_start_time = pygame.time.get_ticks()
+
+            play_sound(fly_sound)
 
             # 立即从棋盘中移除
             del arrows[position]
@@ -688,6 +764,7 @@ def update_game():
             if len(arrows) == 0:
                 result_is_win = True
                 game_state = RESULT
+                play_sound(win_sound)
 
 
 # =========================
