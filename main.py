@@ -1,5 +1,6 @@
 import sys
 import math
+import random
 import pygame
 
 
@@ -62,6 +63,9 @@ FLY_DURATION = 350
 collision_position = None
 collision_start_time = 0
 COLLISION_DURATION = 450
+
+# 碰撞粒子
+particles = []
 
 # 本局结果
 result_is_win = False
@@ -377,6 +381,142 @@ def draw_arrow(position, direction, color=ARROW_COLOR, offset_x=0, offset_y=0):
     pygame.draw.polygon(screen, (255, 255, 255), points)
 
 
+def create_collision_effect(position):
+    """
+    在发生碰撞的格子里生成一批粒子。
+    """
+    global particles
+
+    row, col = position
+    rect = cell_rect(row, col)
+
+    center_x = rect.centerx
+    center_y = rect.centery
+
+    for _ in range(18):
+        angle = random.uniform(0, math.pi * 2)
+        speed = random.uniform(1.5, 4.5)
+
+        particles.append({
+            "x": center_x,
+            "y": center_y,
+            "vx": math.cos(angle) * speed,
+            "vy": math.sin(angle) * speed,
+            "life": random.randint(20, 35),
+            "max_life": 35,
+            "size": random.randint(3, 6),
+            "color": random.choice([
+                (255, 80, 80),
+                (255, 150, 60),
+                (255, 220, 80)
+            ])
+        })
+
+
+def update_particles():
+    """
+    更新粒子的位置和剩余寿命。
+    """
+    global particles
+
+    alive_particles = []
+
+    for particle in particles:
+        particle["x"] += particle["vx"]
+        particle["y"] += particle["vy"]
+
+        particle["vy"] += 0.12
+        particle["life"] -= 1
+
+        if particle["life"] > 0:
+            alive_particles.append(particle)
+
+    particles = alive_particles
+
+
+def draw_particles():
+    """
+    绘制所有存活粒子，透明度随寿命衰减。
+    """
+    for particle in particles:
+        alpha = int(
+            255 * particle["life"] / particle["max_life"]
+        )
+
+        size = max(
+            1,
+            int(
+                particle["size"]
+                * particle["life"]
+                / particle["max_life"]
+            )
+        )
+
+        surface = pygame.Surface(
+            (size * 2, size * 2),
+            pygame.SRCALPHA
+        )
+
+        color = (
+            particle["color"][0],
+            particle["color"][1],
+            particle["color"][2],
+            alpha
+        )
+
+        pygame.draw.circle(surface, color, (size, size), size)
+
+        screen.blit(
+            surface,
+            (
+                int(particle["x"] - size),
+                int(particle["y"] - size)
+            )
+        )
+
+
+def draw_collision_ring():
+    """
+    在碰撞格子周围绘制向外扩散的圆环。
+    """
+    if collision_position is None:
+        return
+
+    elapsed = pygame.time.get_ticks() - collision_start_time
+
+    if elapsed >= COLLISION_DURATION:
+        return
+
+    row, col = collision_position
+    rect = cell_rect(row, col)
+
+    progress = elapsed / COLLISION_DURATION
+
+    radius = int(CELL_SIZE * 0.35 + CELL_SIZE * 0.45 * progress)
+    alpha = int(200 * (1 - progress))
+
+    surface = pygame.Surface(
+        (radius * 2 + 4, radius * 2 + 4),
+        pygame.SRCALPHA
+    )
+
+    pygame.draw.circle(
+        surface,
+        (220, 65, 65, alpha),
+        (radius + 2, radius + 2),
+        radius,
+        width=3
+    )
+
+    screen.blit(
+        surface,
+        (
+            rect.centerx - radius - 2,
+            rect.centery - radius - 2
+        )
+    )
+
+
 def draw_board():
     """
     绘制棋盘、箭头和飞行动画。
@@ -456,6 +596,23 @@ def draw_board():
             offset_y=offset_y
         )
 
+    # 绘制碰撞圆环和粒子
+    draw_collision_ring()
+    draw_particles()
+
+    # 碰撞提示文字
+    if collision_position is not None:
+        elapsed = pygame.time.get_ticks() - collision_start_time
+
+        if elapsed < COLLISION_DURATION:
+            draw_text(
+                "前方有阻挡",
+                NORMAL_FONT,
+                RED,
+                SCREEN_WIDTH // 2,
+                580
+            )
+
 
 # =========================
 # 鼠标点击处理
@@ -489,6 +646,8 @@ def handle_arrow_click(mouse_position):
                 collision_position = position
                 collision_start_time = pygame.time.get_ticks()
 
+                create_collision_effect(position)
+
                 if lives <= 0:
                     result_is_win = False
                     game_state = RESULT
@@ -516,6 +675,8 @@ def update_game():
     global flying_arrow
     global game_state
     global result_is_win
+
+    update_particles()
 
     if flying_arrow is not None:
         elapsed = pygame.time.get_ticks() - flying_start_time
