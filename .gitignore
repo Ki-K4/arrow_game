@@ -6,3 +6,9 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+# 游戏运行时生成的存档和打包产物
+progress.json
+build/
+dist/
+*.spec
